@@ -70,7 +70,9 @@ description; normal captions are preserved unchanged.
 STAR first encodes images and captions with PE-Core to obtain a high-recall candidate set. The
 X-VLM cross-encoder reranks the Top-$K$ candidates using fine-grained image-text compatibility.
 Gale--Shapley then resolves duplicate Top-1 assignments while retaining the score ordering of
-the remaining candidates. Figure~\ref{fig:pipeline} will visualise the pipeline.
+the remaining candidates. The first stage is recall-oriented, whereas the second stage is trained
+to resolve the action and state distinctions within a small candidate set. Figure~\ref{fig:pipeline}
+will visualise the pipeline.
 
 \begin{figure}[t]
   \centering
@@ -80,7 +82,23 @@ the remaining candidates. Figure~\ref{fig:pipeline} will visualise the pipeline.
   \label{fig:pipeline}
 \end{figure}
 
-\subsection{Learning Objective}
+\subsubsection{PE First-Stage Retrieval}
+PE-Core-bigG-14-448 produces normalized image and caption embeddings. We freeze and precompute
+the text representation, and adapt the visual tower, projection layers, and visual LoRA modules.
+With Cross-Batch Memory, its symmetric contrastive objective is
+\begin{equation}
+\mathcal{L}_{\mathrm{PE}}=\tfrac{1}{2}\left[
+\mathrm{CE}(S_{I\rightarrow T}, y)+\mathrm{CE}(S_{T\rightarrow I}, y)\right].
+\end{equation}
+This stage returns Top-$K$ candidates rather than a final one-to-one prediction.
+
+\subsubsection{X-VLM Cross-Encoder and Explicit Hard Pairs}
+The X-VLM cross-encoder scores candidate image-text pairs with an ITM head. For every matched
+pair $(I_i,T_i)$ and its linked hard partner $j$, we train on the positive $(I_i,T_i)$ and the two
+directed negatives $(I_j,T_i)$ and $(I_i,T_j)$. This targets action and state ambiguity within
+otherwise similar scenes.
+
+\subsubsection{Optimization Objectives}
 The X-VLM stage minimizes
 \begin{equation}
 \mathcal{L}=\mathcal{L}_{\mathrm{ITC}}+
@@ -89,7 +107,8 @@ The X-VLM stage minimizes
 \end{equation}
 ITC aligns global image and text embeddings, ITM compares positives with explicit hard image and
 hard text negatives, and Smooth-AP supplies a differentiable early-rank signal. All loss weights
-are selected on dev only.
+are selected on dev only. We do not use masked language modeling during PE or X-VLM fine-tuning:
+the text encoder is frozen and the X-VLM objective contains exactly the three terms above.
 
 \subsection{Cross-Batch Memory}
 PE adaptation maintains FIFO queues of detached normalized image and text features. Instance and

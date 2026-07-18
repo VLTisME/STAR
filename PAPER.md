@@ -103,35 +103,60 @@ processed PAB rows
   -> final Top-10 rankings
 ```
 
-PE-Core-bigG-14-448 is the first-stage retriever. Its text representation is cached and frozen;
-visual LoRA and alignment layers are optimized. X-VLM consumes the Top-K candidates at 384px and
-uses its cross-encoder to verify fine-grained image-text compatibility.
+The first stage is deliberately optimized for recall; the second stage is deliberately optimized
+for the fine-grained action and state distinctions that remain within a small candidate set.
+The following subsections specify the inherited components and the objectives used to adapt them.
 
-### 3.3 Learning Objective
+#### 3.2.1 PE First-Stage Retrieval
+
+PE-Core-bigG-14-448 produces normalized image and caption embeddings. Its text tower is frozen
+and caption embeddings are precomputed; we adapt only the visual side, its projection layers, and
+visual LoRA modules. For a batch of matched image-caption pairs, with additional queued negatives
+when XBM is enabled, PE uses the symmetric contrastive objective
+
+```math
+L_{PE}=\tfrac{1}{2}\big[CE(S_{I\rightarrow T}, y)+CE(S_{T\rightarrow I}, y)\big].
+```
+
+This stage returns the Top-K candidates and is not responsible for the final one-to-one decision.
+
+#### 3.2.2 X-VLM Cross-Encoder and Explicit Hard Pairs
+
+X-VLM encodes each Top-K image-text pair with a cross-encoder and an image-text matching (ITM)
+head. Training batches contain linked hard pairs. For every matched pair `(I_i, T_i)` and its
+partner `j`, the ITM head sees one positive `(I_i, T_i)` and two directed negatives:
+`(I_j, T_i)` and `(I_i, T_j)`. These examples force the reranker to separate near-duplicate scenes
+that differ in action, interaction, or event state rather than only in background appearance.
+
+#### 3.2.3 Optimization Objectives
 
 The X-VLM objective is:
 
 ```math
-L = L_ITC + lambda_ITM L_ITM + lambda_SAP L_SmoothAP.
+L = L_{ITC} + \lambda_{ITM} * L_{ITM} + \lambda_{SAP} * L_{SmoothAP}.
 ```
 
 `L_ITC` aligns global image and text features, `L_ITM` distinguishes positive pairs from explicit
 hard image/text mismatches, and `L_SmoothAP` supplies a differentiable rank-aware signal.
-The selected values of `lambda_ITM` and `lambda_SAP` will be chosen only on `dev`.
+`L_SmoothAP` is the differentiable approximation to AP; in the single-correct-image setting it
+directly emphasizes the reciprocal rank of the relevant image. We do **not** include masked
+language modeling (MLM) during either PE or X-VLM fine-tuning: the text encoder is frozen and the
+fine-tuning objective is exactly the three terms above. The selected values of `lambda_ITM` and
+`lambda_SAP` will be chosen only on `dev`.
 
-### 3.4 Cross-Batch Memory
+### 3.3 Cross-Batch Memory
 
 The PE stage stores normalized detached image/text embeddings with instance and caption hashes
 in a FIFO queue. Queue entries enlarge the negative set while duplicate captions and same-instance
 items are masked. `[TBD: queue size and final PE adaptation schedule.]`
 
-### 3.5 Gale-Shapley Assignment
+### 3.4 Gale-Shapley Assignment
 
 Queries propose to candidate images in descending reranker score order. Each image tentatively
 holds its preferred proposal and rejects inferior ones until convergence. The accepted image is
 placed at rank one; ranks two through ten preserve their score ordering after removing duplicates.
 
-### 3.6 Optional Multi-Retriever Fusion
+### 3.5 Optional Multi-Retriever Fusion
 
 RRF fusion remains optional. It will appear in the final method only if selected on `dev` and
 reproduced on `report`; otherwise it is an appendix ablation.
