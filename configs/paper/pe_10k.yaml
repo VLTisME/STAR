@@ -1,0 +1,22 @@
+run:
+  subset: train_10k_hard
+  manifest: manifests/paper/train_10k_hard.parquet
+  output_dir: outputs/paper/10k/pe
+  selection_split: dev
+  report_split: report
+  seed: 2026
+  wandb_group: 10k-scale
+pe:
+  model: hf-hub:timm/PE-Core-bigG-14-448
+  image_size: 448
+  target_effective_batch: 128
+  batch_candidates: [4, 6, 8, 10, 12, 16]
+  epochs: 4
+  xbm_size: 4096
+  head_lr: 0.0001
+  lora_lr: 0.00002
+  weight_decay: 0.05
+  warmup_ratio: 0.05
+  lora_start_epoch: 1
+  workers: 16
+  prefetch_factor: 4

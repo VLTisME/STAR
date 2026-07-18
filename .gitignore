@@ -1,0 +1,46 @@
+# Data, checkpoints, and experiment outputs
+/data/
+/manifests/
+/outputs/
+/runs/
+/wandb/
+/artifacts/
+/assets/raw/
+
+*.webp
+*.jpg
+*.jpeg
+*.png
+*.parquet
+*.pth
+*.pt
+*.ckpt
+*.th
+
+# LaTex build products (the template PDF itself remains tracked under paper/)
+paper/main.aux
+paper/main.bbl
+paper/main.blg
+paper/main.log
+paper/main.out
+paper/main.pdf
+
+# External dependencies and environments
+/third_party/X-VLM/
+.venv/
+.venv-*/
+.env
+*.egg-info/
+
+# Python and tooling
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Editor and OS files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

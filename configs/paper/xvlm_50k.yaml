@@ -1,0 +1,48 @@
+data:
+  manifest: manifests/paper/train_50k_hard.parquet
+  image_root: .
+  image_size: 384
+  selection_split: dev
+  report_split: report
+  group_by: pair
+  pair_hard_pairs: -1
+  lhp_enabled: true
+  pair_consistent_aug: true
+  num_workers: 20
+  prefetch_factor: 4
+  persistent_workers: true
+model:
+  backbone: xvlm
+  checkpoint: /workspace/checkpoints/xvlm_16m_base.th
+  xvlm_repo: /workspace/X-VLM
+  lora_enabled: true
+  lora_r: 16
+  lora_alpha: 32
+  lora_freeze_text: true
+  pose_enabled: false
+loss:
+  w_itc: 1.0
+  lambda_itm: 2.0
+  lambda_smooth_ap: 0.2
+optim:
+  lr_lora: 0.0001
+  lr_head: 0.0002
+  weight_decay: 0.05
+  warmup_epochs: 0.2
+  epochs: 4
+train:
+  batch_size: 64
+  grad_accum: 2
+  amp_dtype: bf16
+  grad_checkpointing: true
+  eval_every_epochs: 0.5
+  early_stop_patience: 3
+  seed: 2026
+  out_dir: outputs/paper/50k/xvlm
+  log_wandb: true
+  wandb_project: star-aicity-paper
+  wandb_group: 50k-scale
+  wandb_run_name: xvlm-seed2026
+  wandb_tags: [paper, 50k, xvlm, scale]
+  log_every_steps: 25
+  best_r10_max_drop: 0.002

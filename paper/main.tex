@@ -1,0 +1,137 @@
+\documentclass[runningheads]{llncs}
+
+% Review submission: replace ID=***** only after a workshop submission ID is assigned.
+% Camera-ready: replace this line with \usepackage{eccv}, add the author block below,
+% and update the workshop page-limit requirement before submission.
+\usepackage[review,year=2026,ID=*****]{eccv}
+\usepackage{eccvabbrv}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{amsmath}
+\usepackage{xcolor}
+\usepackage{hyperref}
+
+\newcommand{\todo}[1]{\textcolor{red}{[TBD: #1]}}
+
+\begin{document}
+
+\title{STAR: Action-Aware Two-Stage Retrieval for Fine-Grained Person Anomaly Retrieval}
+\titlerunning{STAR for Fine-Grained Person Anomaly Retrieval}
+
+% Keep this anonymous for review. Camera-ready authors:
+% Tuan Vo-Lan, Khanh Tran-Quoc, Phuc Nguyen-Ngoc, Thanh Vo-Thai
+% University of Science, Vietnam National University Ho Chi Minh City
+\author{Anonymous ECCVW AI City Challenge Submission}
+\authorrunning{Anonymous Submission}
+\institute{Anonymous Institution}
+
+\maketitle
+
+\begin{abstract}
+Fine-grained person anomaly retrieval requires matching a textual description to an image whose
+decisive evidence may be an action, interaction, or event state rather than its global scene.
+We present STAR, an action-aware two-stage retrieval framework. STAR enriches anomaly-side
+training captions with source event information, adapts a PE-Core visual retriever with
+Cross-Batch Memory for high-recall candidate generation, and reranks candidates with an X-VLM
+cross-encoder optimized by contrastive, image-text matching, and Smooth-AP objectives.
+A Gale--Shapley assignment stage resolves conflicting Top-1 image choices under the one-to-one
+retrieval structure. On a clean video-disjoint held-out split, STAR obtains \todo{metrics}.
+\keywords{Text-image retrieval \and person anomaly retrieval \and hard negatives \and global assignment}
+\end{abstract}
+
+\section{Introduction}
+Text-based person anomaly retrieval is difficult when candidates share a scene, subjects,
+objects, and background while differing only in action phase, body state, object contact, or
+event outcome. Global contrastive retrieval can locate the correct neighborhood but frequently
+confuses near-identical candidates. STAR addresses this issue with action-aware captions,
+high-recall retrieval, cross-encoder verification, and a final one-to-one assignment.
+
+Our contributions are: (i) an action-aware PE-to-X-VLM retrieval architecture optimized with
+contrastive, image-text matching, and rank-aware objectives; (ii) anomaly-focused caption
+enhancement using source event descriptions; (iii) PE adaptation with Cross-Batch Memory; and
+(iv) a Gale--Shapley postprocessor for one-to-one Top-1 resolution.
+
+\section{Related Work}
+\paragraph{Text-image retrieval.} Discuss dual encoders, cross-encoders, and the efficiency--
+accuracy trade-off motivating two-stage retrieval. \todo{Add citations.}
+\paragraph{Fine-grained retrieval and ranking.} Discuss hard negatives and differentiable ranking,
+including Smooth-AP. \todo{Add citations.}
+\paragraph{Caption augmentation and global assignment.} Discuss event-aware language supervision,
+similarity-coverage analysis, and stable matching. \todo{Add citations.}
+
+\section{Method}
+\subsection{Data Preparation and Caption Enhancement}
+We construct deterministic video-disjoint train/dev/report partitions. All hard-pair endpoints
+remain within one partition. Nested 10K, 30K, and 50K hard subsets are sampled exclusively from
+training videos. Anomaly-side captions are rewritten from the original caption and source event
+description; normal captions are preserved unchanged.
+
+\subsection{Overall Architecture}
+STAR first encodes images and captions with PE-Core to obtain a high-recall candidate set. The
+X-VLM cross-encoder reranks the Top-$K$ candidates using fine-grained image-text compatibility.
+Gale--Shapley then resolves duplicate Top-1 assignments while retaining the score ordering of
+the remaining candidates. Figure~\ref{fig:pipeline} will visualise the pipeline.
+
+\begin{figure}[t]
+  \centering
+  \fbox{\rule{0pt}{1.1in}\rule{0.95\linewidth}{0pt}}
+  \caption{\todo{Pipeline figure: caption enhancement $\rightarrow$ PE + XBM $\rightarrow$
+  Top-$K$ $\rightarrow$ X-VLM ITM $\rightarrow$ Gale--Shapley.}}
+  \label{fig:pipeline}
+\end{figure}
+
+\subsection{Learning Objective}
+The X-VLM stage minimizes
+\begin{equation}
+\mathcal{L}=\mathcal{L}_{\mathrm{ITC}}+
+\lambda_{\mathrm{ITM}}\mathcal{L}_{\mathrm{ITM}}+
+\lambda_{\mathrm{SAP}}\mathcal{L}_{\mathrm{SmoothAP}}.
+\end{equation}
+ITC aligns global image and text embeddings, ITM compares positives with explicit hard image and
+hard text negatives, and Smooth-AP supplies a differentiable early-rank signal. All loss weights
+are selected on dev only.
+
+\subsection{Cross-Batch Memory}
+PE adaptation maintains FIFO queues of detached normalized image and text features. Instance and
+caption identifiers mask invalid same-instance and duplicate-caption negatives, enlarging the
+contrastive negative set beyond the physical batch.
+
+\subsection{Gale--Shapley Assignment}
+Each query proposes to candidates in descending reranker-score order. An image holds its strongest
+proposal and rejects weaker ones until convergence. The held candidate becomes rank one; the
+remaining list preserves score order after that candidate is removed.
+
+\section{Experiments}
+\subsection{Protocol and Metrics}
+All model-selection decisions use dev. The report split is evaluated only after a recipe is frozen.
+We report mAP, R@1, R@5, and R@10.
+
+\subsection{Experimental Settings}
+\todo{Fill from frozen configs: PE 448px, X-VLM 384px, LoRA, augmentation, XBM, batch,
+optimizer, schedule, seed, and compute.}
+
+\subsection{Results and Ablations}
+\begin{table}[t]
+  \centering
+  \caption{Main comparison on the frozen report split.}
+  \begin{tabular}{lrrrr}
+    \toprule
+    Method & mAP & R@1 & R@5 & R@10 \\
+    \midrule
+    PE retrieval & \todo{} & \todo{} & \todo{} & \todo{} \\
+    + X-VLM reranking & \todo{} & \todo{} & \todo{} & \todo{} \\
+    + Gale--Shapley (STAR) & \todo{} & \todo{} & \todo{} & \todo{} \\
+    \bottomrule
+  \end{tabular}
+  \label{tab:main}
+\end{table}
+
+\todo{Add scale, component-ablation, and postprocessing tables from the experiment ledger.}
+
+\section{Qualitative Analysis and Limitations}
+\todo{Add report-split retrieval wins and two failure cases. Discuss ambiguous event phase,
+caption ambiguity, and domain shift.}
+
+\bibliographystyle{splncs04}
+\bibliography{main}
+\end{document}
