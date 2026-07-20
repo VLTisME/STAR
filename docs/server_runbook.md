@@ -320,7 +320,10 @@ export RUN_ROOT=/workspace/paper-data/train_30k_hard_448_data
 test -d "$RUN_ROOT/data/train_webp"
 test -d "$RUN_ROOT/data/annotation/train_processed"
 test -f "$RUN_ROOT/data/splits/video_splits.json"
-sha256sum -c "$RUN_ROOT/checksums.sha256"
+(
+  cd "$RUN_ROOT"
+  sha256sum -c checksums.sha256
+)
 ~~~
 
 ## 7. Caption, bbox, and manifest preparation
