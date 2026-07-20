@@ -39,8 +39,18 @@ test -x /usr/bin/python3.10 && /usr/bin/python3.10 --version
 ~~~
 
 The host CUDA toolkit does not need to equal the PyTorch wheel version. CUDA 12.1 PE wheels and
-CUDA 11.8 X-VLM wheels work with a sufficiently new A100 driver. If Python 3.10 is absent, choose
-another Ubuntu 22.04 image instead of attempting to repair the vendor Python 3.12 environment.
+CUDA 11.8 X-VLM wheels work with a sufficiently new A100 driver. Do not create model environments
+from the vendor Python 3.12 executable. If `/usr/bin/python3.10` is absent but `uv` is installed,
+use its managed interpreter instead:
+
+~~~bash
+uv python install 3.10
+uv venv --python 3.10 --seed /workspace/venvs/star-pe
+# Repeat the same command with star-caption or star-xvlm as the final path.
+~~~
+
+If neither Python 3.10 nor `uv` is available, choose another Ubuntu 22.04 image rather than
+attempting to repair the vendor Python 3.12 environment.
 
 Install only system dependencies needed for the experiment:
 
