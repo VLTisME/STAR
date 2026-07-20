@@ -218,10 +218,34 @@ idempotent patches:
 Put the trusted X-VLM checkpoint outside Git and save its checksum:
 
 ~~~bash
-test -f /workspace/checkpoints/xvlm_16m_base.th
+mkdir -p /workspace/checkpoints
+
+# Option A: download the public X-VLM 16M initialization checkpoint directly.
+# Option B: upload the same file from a verified private copy to this exact path instead.
+python -m gdown --fuzzy \
+  'https://drive.google.com/file/d/1iXgITaSbQ1oGPPvGaV0Hlae4QiJG5gx0/view' \
+  --output /workspace/checkpoints/xvlm_16m_base.th
+
+test -s /workspace/checkpoints/xvlm_16m_base.th
+test "$(stat -c%s /workspace/checkpoints/xvlm_16m_base.th)" -gt 800000000
 sha256sum /workspace/checkpoints/xvlm_16m_base.th \
   | tee /workspace/checkpoints/xvlm_16m_base.th.sha256
+
+python - <<'PY'
+from pathlib import Path
+import torch
+
+p = Path('/workspace/checkpoints/xvlm_16m_base.th')
+state = torch.load(p, map_location='cpu')
+print('checkpoint bytes:', p.stat().st_size)
+print('top-level type:', type(state).__name__)
+print('checkpoint load: OK')
+PY
 ~~~
+
+Do this checkpoint gate immediately after the X-VLM environment verification and before any
+training smoke test. The expected file is approximately 825 MiB. It is an initialization
+checkpoint, not the best checkpoint from a historical STAR run.
 
 These messages are expected:
 
