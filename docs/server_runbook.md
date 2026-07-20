@@ -65,6 +65,15 @@ else
   exit 1
 fi
 "$STAR_PYTHON" --version
+
+make_star_venv() {
+  local target="$1"
+  if command -v uv >/dev/null; then
+    uv venv --python "$STAR_PYTHON" --seed "$target"
+  else
+    "$STAR_PYTHON" -m venv --upgrade-deps "$target"
+  fi
+}
 ~~~
 
 Install only system dependencies needed for the experiment:
@@ -104,7 +113,7 @@ legacy pkg_resources available for old X-VLM-era imports.
 ## 3. Modern PE and bbox environment
 
 ~~~bash
-"$STAR_PYTHON" -m venv --upgrade-deps /workspace/venvs/star-pe
+make_star_venv /workspace/venvs/star-pe
 source /workspace/venvs/star-pe/bin/activate
 
 python -m pip install --upgrade $BOOTSTRAP
@@ -132,7 +141,7 @@ This is a one-time data-preparation environment. Let vLLM install the Torch vers
 do not manually pre-install a different Torch here.
 
 ~~~bash
-"$STAR_PYTHON" -m venv --upgrade-deps /workspace/venvs/star-caption
+make_star_venv /workspace/venvs/star-caption
 source /workspace/venvs/star-caption/bin/activate
 
 python -m pip install --upgrade $BOOTSTRAP
@@ -178,7 +187,7 @@ X-VLM needs an isolated old stack. The sequence below avoids the old tokenizers 
 pkg_resources failure, NumPy 2 ABI mismatch, scipy.interp2d removal, and missing models module.
 
 ~~~bash
-"$STAR_PYTHON" -m venv --upgrade-deps /workspace/venvs/star-xvlm
+make_star_venv /workspace/venvs/star-xvlm
 source /workspace/venvs/star-xvlm/bin/activate
 
 python -m pip install --upgrade $BOOTSTRAP
