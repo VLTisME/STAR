@@ -40,7 +40,11 @@ def parse_args():
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--auto-batch", action="store_true")
     parser.add_argument("--calibrate-only", action="store_true")
-    parser.add_argument("--batch-candidates", default="4,6,8,10,12,16")
+    parser.add_argument(
+        "--batch-candidates",
+        default="8,16,24,32,40,48,56,64",
+        help="ascending, even physical-batch candidates for auto-calibration",
+    )
     parser.add_argument(
         "--max-peak-gib",
         type=float,
