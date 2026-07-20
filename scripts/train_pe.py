@@ -41,6 +41,15 @@ def parse_args():
     parser.add_argument("--auto-batch", action="store_true")
     parser.add_argument("--calibrate-only", action="store_true")
     parser.add_argument("--batch-candidates", default="4,6,8,10,12,16")
+    parser.add_argument(
+        "--max-peak-gib",
+        type=float,
+        default=None,
+        help=(
+            "maximum allocated GPU memory accepted during auto-calibration; "
+            "defaults to 85% of the detected GPU capacity"
+        ),
+    )
     parser.add_argument("--calibration-warmup", type=int, default=20)
     parser.add_argument("--calibration-steps", type=int, default=50)
     parser.add_argument("--target-effective-batch", type=int, default=128)
@@ -143,6 +152,12 @@ def build_scheduler(optimizer, total_steps, warmup_ratio):
 
 def calibrate(model, dataset, transform, args, device):
     candidates = [int(value) for value in args.batch_candidates.split(",") if int(value) % 2 == 0]
+    total_gib = torch.cuda.get_device_properties(device).total_memory / 2**30
+    peak_limit_gib = args.max_peak_gib or total_gib * 0.85
+    print(
+        f"auto-batch peak limit: {peak_limit_gib:.1f} GiB "
+        f"of {total_gib:.1f} GiB total"
+    )
     chosen = None
     results = []
     model.set_lora_enabled(True)
@@ -178,7 +193,7 @@ def calibrate(model, dataset, transform, args, device):
             speed = batch_size / (sum(elapsed) / len(elapsed))
             results.append({"batch_size": batch_size, "peak_gib": peak, "images_per_s": speed})
             print(f"calibration batch={batch_size}: peak={peak:.1f} GiB speed={speed:.1f} img/s")
-            if peak <= 74:
+            if peak <= peak_limit_gib:
                 chosen = batch_size
         except torch.cuda.OutOfMemoryError:
             print(f"calibration batch={batch_size}: OOM")
