@@ -291,6 +291,16 @@ for size in 10k 30k 50k; do
   wc -l "manifests/paper/subsets/train_${size}_hard.jsonl"
 done
 
+python scripts/sample_clean_eval.py \
+  --annotation-dir /private/data/annotation/train_processed \
+  --video-splits manifests/paper/splits/video_splits.json \
+  --output-dir manifests/paper/eval \
+  --dev-queries 1000 --dev-gallery 5000 \
+  --report-queries 2000 --report-gallery 10000 \
+  --seed 2026
+
+cat manifests/paper/eval/eval_summary.json
+
 python scripts/prepare_subset_448.py \
   --subset manifests/paper/subsets/train_30k_hard.jsonl \
   --data-root /private/data \
@@ -299,6 +309,7 @@ python scripts/prepare_subset_448.py \
   --annotation-dir /private/data/annotation/train_processed \
   --video-splits manifests/paper/splits/video_splits.json \
   --include-eval-splits dev,report \
+  --eval-dir manifests/paper/eval \
   --output-root exports/paper --size 448 --quality 92 \
   --workers 16 --shard-size 2048 --archive zst
 ~~~
@@ -307,9 +318,9 @@ If an earlier preparation was interrupted, use `--resume` only when the export d
 contains valid 448px files. If it is empty or stale, rerun the same command with `--overwrite`;
 the archive is created only after the export directory and checksum manifest are complete.
 
-The resulting export contains only the train subset, hard endpoints, and the frozen dev/report
-rows and assets needed for a clean manifest. It includes checksums and 2,048-image shards. Upload
-the .tar.zst archive only, then extract it on the A100:
+The resulting export contains only the train subset, hard endpoints, and fixed compact dev/report
+query-gallery suites (5K dev gallery; 10K report gallery). It includes checksums and 2,048-image
+shards. Upload the .tar.zst archive only, then extract it on the A100:
 
 ~~~bash
 mkdir -p /workspace/paper-data
@@ -347,6 +358,7 @@ python scripts/build_training_manifest.py \
   --subset "$RUN_ROOT/data/subsets_v2/train_30k_hard.jsonl" \
   --annotation-dir "$RUN_ROOT/data/annotation/train_processed" \
   --video-splits "$RUN_ROOT/data/splits/video_splits.json" \
+  --eval-dir "$RUN_ROOT/data/eval" \
   --bbox-json "$RUN_ROOT/artifacts/train_30k_hard_yolo11s.json" \
   --output "$RUN_ROOT/manifests/train_30k_hard.parquet" \
   --use-enhanced --dedupe-eval-captions

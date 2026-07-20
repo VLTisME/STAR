@@ -24,6 +24,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--bbox-json", type=Path, default=None)
     parser.add_argument("--pose-json", type=Path, default=None)
+    parser.add_argument(
+        "--eval-dir",
+        type=Path,
+        default=None,
+        help="Directory containing frozen dev_eval.jsonl/report_eval.jsonl suites.",
+    )
     parser.add_argument("--use-enhanced", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--dedupe-eval-captions", action=argparse.BooleanOptionalAction, default=True)
     return parser.parse_args()
@@ -57,6 +63,21 @@ def load_items(path: Path | None) -> dict[str, dict]:
     if isinstance(items, list):
         return {str(item["image_id"]): item for item in items}
     return {str(key): value for key, value in items.items()}
+
+
+def load_eval_suite(path: Path, split: str) -> list[dict]:
+    if not path.exists():
+        raise FileNotFoundError(f"Missing frozen {split} evaluation suite: {path}")
+    records = list(iter_jsonl(path))
+    if not records:
+        raise ValueError(f"Evaluation suite is empty: {path}")
+    if any(record.get("split") != split or not record.get("image_id") for record in records):
+        raise ValueError(f"Invalid record in {path}")
+    if len({str(record["image_id"]) for record in records}) != len(records):
+        raise ValueError(f"Duplicate image_id in {path}")
+    if not any(bool(record.get("is_query")) for record in records):
+        raise ValueError(f"Evaluation suite has no queries: {path}")
+    return records
 
 
 def normalise_path(value: str) -> str:
@@ -228,19 +249,42 @@ def main() -> None:
 
     records = list(train_records.values())
     eval_duplicate_counts = Counter()
-    for split in ("dev", "report"):
-        seen_captions: set[str] = set()
-        for row in annotations.values():
-            if split_by_video.get(str(row["video_id"])) != split:
-                continue
-            text = str(row.get("caption") or "").strip()
-            key = " ".join(text.lower().split())
-            if args.dedupe_eval_captions and key and key in seen_captions:
-                text = ""
-                eval_duplicate_counts[split] += 1
-            elif key:
-                seen_captions.add(key)
-            records.append(record(row, split=split, text=text, boxes=boxes, poses=poses))
+    eval_summary = {}
+    if args.eval_dir is not None:
+        for split in ("dev", "report"):
+            suite = load_eval_suite(args.eval_dir / f"{split}_eval.jsonl", split)
+            query_keys: set[str] = set()
+            for suite_row in suite:
+                image_id = str(suite_row["image_id"])
+                row = annotations.get(image_id)
+                if row is None:
+                    raise ValueError(f"Evaluation image absent from packaged annotation: {image_id}")
+                assert_split(image_id, row, split, split_by_video)
+                text = str(row.get("caption") or "").strip() if suite_row.get("is_query") else ""
+                key = " ".join(text.lower().split())
+                if key in query_keys:
+                    raise AssertionError(f"Duplicate query caption in frozen {split} suite: {image_id}")
+                if key:
+                    query_keys.add(key)
+                records.append(record(row, split=split, text=text, boxes=boxes, poses=poses))
+            eval_summary[split] = {
+                "gallery_rows": len(suite),
+                "query_rows": sum(bool(item.get("is_query")) for item in suite),
+            }
+    else:
+        for split in ("dev", "report"):
+            seen_captions: set[str] = set()
+            for row in annotations.values():
+                if split_by_video.get(str(row["video_id"])) != split:
+                    continue
+                text = str(row.get("caption") or "").strip()
+                key = " ".join(text.lower().split())
+                if args.dedupe_eval_captions and key and key in seen_captions:
+                    text = ""
+                    eval_duplicate_counts[split] += 1
+                elif key:
+                    seen_captions.add(key)
+                records.append(record(row, split=split, text=text, boxes=boxes, poses=poses))
 
     frame = pd.DataFrame(records)
     if frame["image_id"].duplicated().any():
@@ -260,6 +304,7 @@ def main() -> None:
         "train_anchor_rows": len(selected),
         "train_hard_target_only_rows": int(frame.loc[frame["split"].eq("train"), "is_hard_target"].sum()),
         "eval_duplicate_caption_rows_made_gallery_only": dict(eval_duplicate_counts),
+        "frozen_eval_suites": eval_summary,
         "bbox_status": dict(Counter(frame["bbox_status"])),
         "pose_rows": int(frame.get("keypoints", pd.Series(dtype=object)).notna().sum()),
         "selection_split": "dev",

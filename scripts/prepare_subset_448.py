@@ -41,6 +41,12 @@ def parse_args() -> argparse.Namespace:
         default="",
         help="Comma-separated frozen splits to package as evaluation galleries, e.g. dev,report.",
     )
+    parser.add_argument(
+        "--eval-dir",
+        type=Path,
+        default=None,
+        help="Directory containing compact dev_eval.jsonl/report_eval.jsonl suites.",
+    )
     parser.add_argument("--output-root", type=Path, default=Path("exports"))
     parser.add_argument("--size", type=int, default=448)
     parser.add_argument("--quality", type=int, default=92)
@@ -170,14 +176,14 @@ def resize_one(
 
 
 def copy_metadata(
-    needed_ids: set[str],
+    annotation_rows: dict[str, dict],
     manifest_path: Path,
     subsets_dir: Path,
     data_root: Path,
-    annotation_dir: Path,
     export_data: Path,
     name: str,
     video_splits: Path | None,
+    eval_paths: list[Path],
 ) -> dict:
     subset_dst = export_data / "subsets_v2"
     subset_dst.mkdir(parents=True, exist_ok=True)
@@ -197,25 +203,9 @@ def copy_metadata(
         shutil.copy2(source_caption, annotation_dst / source_caption.name)
 
     by_chunk: dict[str, list[dict]] = defaultdict(list)
-    found_ids = set()
-    annotation_files = sorted(
-        annotation_dir.glob("attr_*.json"),
-        key=lambda path: int(path.stem.split("_")[1]),
-    )
-    for path in annotation_files:
-        for row in iter_jsonl(path):
-            image_id = str(row.get("image_id"))
-            if image_id not in needed_ids:
-                continue
-            chunk = image_id.split("_", 1)[0]
-            by_chunk[chunk].append(row)
-            found_ids.add(image_id)
-    missing_labels = sorted(needed_ids - found_ids)
-    if missing_labels:
-        raise RuntimeError(
-            f"{len(missing_labels):,} selected anchor/hard IDs are missing from {annotation_dir}. "
-            f"First: {missing_labels[:10]}"
-        )
+    for image_id, row in annotation_rows.items():
+        chunk = image_id.split("_", 1)[0]
+        by_chunk[chunk].append(row)
     counts = {}
     for chunk, chunk_rows in sorted(
         by_chunk.items(), key=lambda item: int(item[0]) if item[0].isdigit() else item[0]
@@ -226,6 +216,11 @@ def copy_metadata(
         split_dst = export_data / "splits"
         split_dst.mkdir(parents=True, exist_ok=True)
         shutil.copy2(video_splits, split_dst / "video_splits.json")
+    if eval_paths:
+        eval_dst = export_data / "eval"
+        eval_dst.mkdir(parents=True, exist_ok=True)
+        for path in eval_paths:
+            shutil.copy2(path, eval_dst / path.name)
     return counts
 
 
@@ -237,27 +232,52 @@ def parse_eval_splits(value: str) -> set[str]:
     return names
 
 
-def collect_eval_rows(
-    annotation_dir: Path,
-    video_splits: Path | None,
+def collect_eval_records(
+    eval_dir: Path | None,
     eval_splits: set[str],
-) -> tuple[list[dict], dict[str, int]]:
+) -> tuple[list[dict], dict[str, dict[str, int]], list[Path]]:
     if not eval_splits:
-        return [], {}
-    if video_splits is None:
-        raise ValueError("--video-splits is required when --include-eval-splits is set")
-    payload = json.loads(video_splits.read_text(encoding="utf-8"))
-    split_by_video = {str(key): str(value) for key, value in payload["split_by_video"].items()}
-    rows, counts = [], Counter()
+        return [], {}, []
+    if eval_dir is None:
+        raise ValueError("--eval-dir is required when --include-eval-splits is set")
+    records, counts, paths, seen_ids = [], {}, [], set()
+    for split in sorted(eval_splits):
+        path = eval_dir / f"{split}_eval.jsonl"
+        if not path.exists():
+            raise FileNotFoundError(f"Missing frozen {split} evaluation suite: {path}")
+        suite = list(iter_jsonl(path))
+        if not suite:
+            raise ValueError(f"Evaluation suite is empty: {path}")
+        query_count = 0
+        for record in suite:
+            image_id = str(record.get("image_id") or "")
+            if not image_id or record.get("split") != split:
+                raise ValueError(f"Invalid record in {path}: {record}")
+            if image_id in seen_ids:
+                raise ValueError(f"Evaluation image appears in multiple suites: {image_id}")
+            seen_ids.add(image_id)
+            query_count += bool(record.get("is_query"))
+        if not query_count:
+            raise ValueError(f"Evaluation suite has no queries: {path}")
+        records.extend(suite)
+        counts[split] = {"gallery_rows": len(suite), "query_rows": query_count}
+        paths.append(path)
+    return records, counts, paths
+
+
+def selected_annotation_rows(annotation_dir: Path, needed_ids: set[str]) -> dict[str, dict]:
+    rows = {}
     for path in sorted(annotation_dir.glob("attr_*.json"), key=annotation_index):
         for row in iter_jsonl(path):
-            split = split_by_video.get(str(row.get("video_id")))
-            if split in eval_splits:
-                rows.append(row)
-                counts[split] += 1
-    if any(counts.get(name, 0) == 0 for name in eval_splits):
-        raise ValueError(f"Requested evaluation split is empty: {dict(counts)}")
-    return rows, dict(counts)
+            image_id = str(row.get("image_id"))
+            if image_id in needed_ids:
+                rows[image_id] = row
+    missing = sorted(needed_ids - set(rows))
+    if missing:
+        raise RuntimeError(
+            f"{len(missing):,} requested IDs are missing from {annotation_dir}. First: {missing[:10]}"
+        )
+    return rows
 
 
 def create_shards(
@@ -318,7 +338,7 @@ def main() -> None:
 
     rows = list(iter_jsonl(manifest_path))
     eval_splits = parse_eval_splits(args.include_eval_splits)
-    eval_rows, eval_counts = collect_eval_rows(args.annotation_dir, args.video_splits, eval_splits)
+    eval_records, eval_counts, eval_paths = collect_eval_records(args.eval_dir, eval_splits)
     assets: dict[Path, Path] = {}
     missing = []
     needed_ids: set[str] = set()
@@ -332,14 +352,14 @@ def main() -> None:
         for field in ("image_id", "hard_i_id"):
             if row.get(field):
                 needed_ids.add(str(row[field]))
-    for row in eval_rows:
+    needed_ids.update(str(record["image_id"]) for record in eval_records)
+    annotation_rows = selected_annotation_rows(args.annotation_dir, needed_ids)
+    for record in eval_records:
+        row = annotation_rows[str(record["image_id"])]
         image_value = str(row.get("image") or "")
-        if not image_value:
-            raise ValueError(f"Evaluation row has no image path: {row.get('image_id')}")
         src = source_image_path(image_value, args.data_root, args.image_root)
         rel = output_image_rel(image_value)
         assets[src] = rel
-        needed_ids.add(str(row["image_id"]))
         if not src.exists():
             missing.append(str(src))
     if missing:
@@ -372,14 +392,14 @@ def main() -> None:
         raise SystemExit(f"{len(failures):,} resize failures. First: {failures[:10]}")
 
     annotation_counts = copy_metadata(
-        needed_ids,
+        annotation_rows,
         manifest_path,
         args.subsets_dir,
         args.data_root,
-        args.annotation_dir,
         export_data,
         name,
         args.video_splits,
+        eval_paths,
     )
     rel_paths = [rel for _, rel in ordered_assets]
 
