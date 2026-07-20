@@ -303,6 +303,10 @@ python scripts/prepare_subset_448.py \
   --workers 16 --shard-size 2048 --archive zst
 ~~~
 
+If an earlier preparation was interrupted, use `--resume` only when the export directory already
+contains valid 448px files. If it is empty or stale, rerun the same command with `--overwrite`;
+the archive is created only after the export directory and checksum manifest are complete.
+
 The resulting export contains only the train subset, hard endpoints, and the frozen dev/report
 rows and assets needed for a clean manifest. It includes checksums and 2,048-image shards. Upload
 the .tar.zst archive only, then extract it on the A100:
