@@ -21,11 +21,16 @@ from star.utils import seed_everything  # noqa: E402
 def parse_args():
     parser = argparse.ArgumentParser(description="Probe safe physical X-VLM batch size on A100.")
     parser.add_argument("--config", required=True)
-    parser.add_argument("--candidates", default="32,48,64,80,96")
+    parser.add_argument("--candidates", default="16,24,32,40,48,56,64")
     parser.add_argument("--warmup", type=int, default=20)
     parser.add_argument("--steps", type=int, default=50)
-    parser.add_argument("--target-vram-min", type=float, default=68)
-    parser.add_argument("--target-vram-max", type=float, default=74)
+    parser.add_argument("--target-vram-min", type=float, default=None)
+    parser.add_argument(
+        "--target-vram-max",
+        type=float,
+        default=None,
+        help="maximum allocated memory accepted; defaults to 85% of detected GPU capacity",
+    )
     parser.add_argument("--output", default="batch_calibration_xvlm.json")
     parser.add_argument("--set", nargs="*", default=[])
     return parser.parse_args()
@@ -39,6 +44,13 @@ def main():
     torch.backends.cuda.matmul.allow_tf32 = True
     torch.backends.cudnn.allow_tf32 = True
     device = torch.device("cuda")
+    total_gib = torch.cuda.get_device_properties(device).total_memory / 2**30
+    target_vram_max = args.target_vram_max or total_gib * 0.85
+    target_vram_min = args.target_vram_min or total_gib * 0.70
+    print(
+        f"calibration VRAM target: {target_vram_min:.1f}-{target_vram_max:.1f} GiB "
+        f"of {total_gib:.1f} GiB total"
+    )
     model = STARModel(cfg).to(device).train()
     tokenizer = model.backbone.tokenizer
     augmentation = {
@@ -116,7 +128,7 @@ def main():
             record = {"batch_size": batch_size, "peak_gib": peak, "images_per_s": speed}
             results.append(record)
             print(f"batch={batch_size}: peak={peak:.1f} GiB speed={speed:.1f} img/s")
-            if peak <= args.target_vram_max:
+            if peak <= target_vram_max:
                 selected = batch_size
         except torch.cuda.OutOfMemoryError:
             results.append({"batch_size": batch_size, "oom": True})
@@ -130,7 +142,7 @@ def main():
 
     payload = {
         "selected_batch_size": selected,
-        "target_vram_gib": [args.target_vram_min, args.target_vram_max],
+        "target_vram_gib": [target_vram_min, target_vram_max],
         "results": results,
     }
     Path(args.output).write_text(json.dumps(payload, indent=2), encoding="utf-8")
