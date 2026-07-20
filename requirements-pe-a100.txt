@@ -12,7 +12,9 @@ Pillow==10.4.0
 opencv-python-headless==4.10.0.84
 
 transformers==4.46.3
-timm==1.0.15
+# PE-Core's vit_pe_core_gigantic_patch14_448 registration is absent from
+# timm 1.0.15. Pin a current 1.0.x release that includes the architecture.
+timm==1.0.27
 open_clip_torch==2.30.0
 huggingface_hub==0.26.5
 safetensors==0.4.5
