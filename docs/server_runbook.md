@@ -271,12 +271,25 @@ python scripts/make_video_disjoint_splits.py \
   --annotation-dir /private/data/annotation/train_processed \
   --output-dir manifests/paper/splits --seed 2026
 
+test -s manifests/paper/splits/video_splits.json
+python - <<'PY'
+import json
+p = json.load(open('manifests/paper/splits/split_summary.json'))
+print('split rows:', p['row_counts'])
+assert p['hard_pair_leakage'] == 0
+PY
+
 python scripts/sample_clean_subsets.py \
   --annotation-dir /private/data/annotation/train_processed \
   --video-splits manifests/paper/splits/video_splits.json \
   --output-dir manifests/paper/subsets \
   --image-root /private/data/train_webp \
   --sizes 10k,30k,50k --seed 2026
+
+for size in 10k 30k 50k; do
+  test -s "manifests/paper/subsets/train_${size}_hard.jsonl"
+  wc -l "manifests/paper/subsets/train_${size}_hard.jsonl"
+done
 
 python scripts/prepare_subset_448.py \
   --subset manifests/paper/subsets/train_30k_hard.jsonl \
