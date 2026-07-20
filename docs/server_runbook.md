@@ -52,6 +52,21 @@ uv venv --python 3.10 --seed /workspace/venvs/star-pe
 If neither Python 3.10 nor `uv` is available, choose another Ubuntu 22.04 image rather than
 attempting to repair the vendor Python 3.12 environment.
 
+Set the interpreter selector once in every new shell before creating an environment:
+
+~~~bash
+if test -x /usr/bin/python3.10; then
+  export STAR_PYTHON=/usr/bin/python3.10
+elif command -v uv >/dev/null; then
+  uv python install 3.10
+  export STAR_PYTHON="$(uv python find 3.10)"
+else
+  echo "Python 3.10 and uv are both unavailable" >&2
+  exit 1
+fi
+"$STAR_PYTHON" --version
+~~~
+
 Install only system dependencies needed for the experiment:
 
 ~~~bash
@@ -89,7 +104,7 @@ legacy pkg_resources available for old X-VLM-era imports.
 ## 3. Modern PE and bbox environment
 
 ~~~bash
-/usr/bin/python3.10 -m venv --upgrade-deps /workspace/venvs/star-pe
+"$STAR_PYTHON" -m venv --upgrade-deps /workspace/venvs/star-pe
 source /workspace/venvs/star-pe/bin/activate
 
 python -m pip install --upgrade $BOOTSTRAP
@@ -117,7 +132,7 @@ This is a one-time data-preparation environment. Let vLLM install the Torch vers
 do not manually pre-install a different Torch here.
 
 ~~~bash
-/usr/bin/python3.10 -m venv --upgrade-deps /workspace/venvs/star-caption
+"$STAR_PYTHON" -m venv --upgrade-deps /workspace/venvs/star-caption
 source /workspace/venvs/star-caption/bin/activate
 
 python -m pip install --upgrade $BOOTSTRAP
@@ -163,7 +178,7 @@ X-VLM needs an isolated old stack. The sequence below avoids the old tokenizers 
 pkg_resources failure, NumPy 2 ABI mismatch, scipy.interp2d removal, and missing models module.
 
 ~~~bash
-/usr/bin/python3.10 -m venv --upgrade-deps /workspace/venvs/star-xvlm
+"$STAR_PYTHON" -m venv --upgrade-deps /workspace/venvs/star-xvlm
 source /workspace/venvs/star-xvlm/bin/activate
 
 python -m pip install --upgrade $BOOTSTRAP
