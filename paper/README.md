@@ -1,12 +1,12 @@
 # ECCVW Manuscript Source
 
-`main.tex` starts in anonymous review mode. Do not expose the private GitHub repository, W&B
-project, personal server paths, author names, acknowledgements, or other identifying material in
-the review copy.
+`main.tex` is configured for the named ECCVW AI City Challenge submission. Its title, abstract,
+keywords, author names, and affiliation are fixed once the initial submission is made. Keep the
+main manuscript at or below 14 pages; references and supplementary material follow the workshop
+rules.
 
-For camera-ready preparation, replace the anonymous author block using the values in `PAPER.md`,
-switch the ECCV package from review mode to final mode, and re-check the AI City Workshop page
-limit and supplementary-material rules.
+Do not expose private GitHub URLs, W&B credentials, personal server paths, or historical
+leaderboard/tuning artifacts in the manuscript or repository.
 
 Figures are generated from private PAB training/report paths. Keep raw images under
 `assets/raw/` (ignored); commit only derived figures when permitted by dataset terms.

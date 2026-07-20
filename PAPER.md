@@ -1,11 +1,15 @@
 # STAR: Action-Aware Two-Stage Retrieval for Fine-Grained Person Anomaly Retrieval
 
-**Authors (camera-ready):** Tuan Vo-Lan, Khanh Tran-Quoc, Phuc Nguyen-Ngoc, Thanh Vo-Thai  
+**Authors:** Tuan Vo-Lan, Khanh Tran-Quoc, Phuc Nguyen-Ngoc, Thanh Vo-Thai
 **Affiliation:** University of Science, Vietnam National University Ho Chi Minh City
 
 > This is the living scientific draft and evidence tracker. Values marked `[TBD]` must be
 > filled only from the clean video-disjoint protocol in `docs/experiment_protocol.md`.
 > Historical evaluation artifacts and tuning runs are not paper evidence.
+>
+> **ECCVW submission constraint:** the title, abstract, keywords, author names, and affiliations
+> are fixed at initial submission. The manuscript has at most 14 main pages; references and
+> supplementary material follow the workshop's separate rules.
 
 ## Abstract
 
