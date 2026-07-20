@@ -1,0 +1,35 @@
+# Modern PE-Core / YOLO11 / RT-DETR stack for the A100 80 GB server.
+#
+# Python: 3.10. Install matching torch==2.5.1 and torchvision==0.20.1 CUDA 12.1 wheels first:
+#   python -m pip install --index-url https://download.pytorch.org/whl/cu121 \
+#       torch==2.5.1 torchvision==0.20.1
+# Do not install this file inside the legacy X-VLM environment.
+
+numpy==1.26.4
+pandas==2.2.3
+pyarrow==17.0.0
+Pillow==10.4.0
+opencv-python-headless==4.10.0.84
+
+transformers==4.46.3
+timm==1.0.15
+open_clip_torch==2.30.0
+huggingface_hub==0.26.5
+safetensors==0.4.5
+einops==0.8.0
+ftfy==6.3.1
+regex==2024.11.6
+
+# Bbox extraction: YOLO11s is the default. RT-DETR-R18 is an optional fallback and uses
+# the same modern transformers environment.
+ultralytics==8.3.45
+
+PyYAML==6.0.2
+tqdm==4.67.1
+scikit-learn==1.6.0
+rich==13.9.4
+tensorboard==2.18.0
+nvidia-ml-py==12.560.30
+wandb==0.19.1
+pytest==8.3.4
+pytest-cov==6.0.0

@@ -1,22 +1,36 @@
-# Pinned deps to run the REAL X-VLM backbone (transformers 4.12.5 era) on Python 3.10.
-# Install into a SEPARATE venv (.venv-xvlm) — see README §5 for the full recipe.
-# NOTE: torch/torchvision and the two --no-deps packages are installed separately (README §5);
-#       transformers==4.12.5 and timm==0.4.9 go in with --no-deps so the unbuildable old
-#       `tokenizers` is skipped (X-VLM uses its own pure-Python tokenizer).
+# Real X-VLM retrieval/reranking stack: Python 3.10 only.
+#
+# Install torch/torchvision from the CUDA 11.8 index FIRST. Then install this file. Finally
+# install transformers==4.12.5 and timm==0.4.9 with --no-deps; doing so avoids attempting to
+# build the obsolete tokenizers<0.11 package. See docs/server_runbook.md for the exact sequence.
+# Do not mix this environment with requirements-pe-a100.txt or requirements-caption-a100.txt.
 
-numpy<2
-scipy==1.11.4              # <1.14 keeps scipy.interp2d (X-VLM Swin rel-pos interpolation needs it)
-Pillow
-pandas                    # dataset manifest
-pyarrow                   # parquet manifest
-huggingface_hub==0.10.1   # API expected by transformers 4.12.5
-tokenizers>=0.13,<0.14    # modern prebuilt wheel (cp311); not exercised by X-VLM's slow tokenizer
-regex
-requests
-filelock
-sacremoses
-packaging
-ruamel.yaml
-PyYAML
-tqdm
-six                       # some X-VLM utils
+numpy==1.26.4
+scipy==1.11.4
+pandas==2.2.3
+pyarrow==17.0.0
+Pillow==10.4.0
+opencv-python-headless==4.10.0.84
+
+# Transformers 4.12.5 expects this older Hub API. The dependency-table patch applied by
+# setup_xvlm_legacy.py permits the modern prebuilt tokenizers wheel below.
+huggingface_hub==0.10.1
+tokenizers==0.13.3
+regex==2024.11.6
+requests==2.32.3
+filelock==3.16.1
+sacremoses==0.1.1
+packaging==24.2
+ruamel.yaml==0.18.6
+PyYAML==6.0.2
+tqdm==4.67.1
+six==1.17.0
+einops==0.8.0
+
+# Clean-run instrumentation and tests. These do not upload checkpoints.
+rich==13.9.4
+tensorboard==2.18.0
+nvidia-ml-py==12.560.30
+wandb==0.19.1
+pytest==8.3.4
+pytest-cov==6.0.0

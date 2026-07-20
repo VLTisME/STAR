@@ -51,12 +51,21 @@ See [docs/experiment_protocol.md](docs/experiment_protocol.md) for the full prot
 
 ## Quick Start
 
+The real paper pipeline uses three isolated environments. Do not install the legacy X-VLM
+requirements into the modern PE environment. The exact A100 commands, pins, compatibility patches,
+and verification checks are in [docs/server_runbook.md](docs/server_runbook.md).
+
+For metadata-only work or the modern PE/bbox stack, install matching CUDA Torch wheels before the
+Python packages:
+
 ```bash
-python -m venv .venv
-source .venv/bin/activate
-python -m pip install -U pip
-python -m pip install -r requirements.txt
-python -m pip install -e .
+/usr/bin/python3.10 -m venv --upgrade-deps .venv-pe
+source .venv-pe/bin/activate
+python -m pip install -U 'pip==24.3.1' 'setuptools==75.8.0' 'wheel==0.45.1'
+python -m pip install --index-url https://download.pytorch.org/whl/cu121 \
+  torch==2.5.1 torchvision==0.20.1
+python -m pip install -r requirements-pe-a100.txt
+python -m pip install --no-deps -e .
 
 python scripts/make_video_disjoint_splits.py \
   --annotation-dir /path/to/train_processed \

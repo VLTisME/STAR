@@ -30,6 +30,17 @@ def parse_args() -> argparse.Namespace:
         default=Path("data/annotation/train_processed"),
         help="Full processed annotation used to include labels for hard_i_id targets.",
     )
+    parser.add_argument(
+        "--video-splits",
+        type=Path,
+        default=None,
+        help="Optional video_splits.json. Required with --include-eval-splits.",
+    )
+    parser.add_argument(
+        "--include-eval-splits",
+        default="",
+        help="Comma-separated frozen splits to package as evaluation galleries, e.g. dev,report.",
+    )
     parser.add_argument("--output-root", type=Path, default=Path("exports"))
     parser.add_argument("--size", type=int, default=448)
     parser.add_argument("--quality", type=int, default=92)
@@ -48,6 +59,14 @@ def iter_jsonl(path: Path) -> Iterable[dict]:
         for line in handle:
             if line.strip():
                 yield json.loads(line)
+
+
+def annotation_index(path: Path) -> int:
+    """Sort attr_<integer>.json files numerically rather than lexicographically."""
+    try:
+        return int(path.stem.removeprefix("attr_"))
+    except ValueError as exc:
+        raise ValueError(f"Expected an attr_<integer>.json annotation file, got {path}") from exc
 
 
 def write_jsonl(path: Path, rows: Iterable[dict]) -> int:
@@ -79,6 +98,8 @@ def source_image_path(value: str, data_root: Path, image_root: Path) -> Path:
         return data_root / text
     if text.startswith("imgs_"):
         return image_root / text
+    if text.startswith("train/"):
+        return image_root / Path(text.removeprefix("train/")).with_suffix(".webp")
     path = Path(text)
     if path.is_absolute():
         return path
@@ -93,6 +114,8 @@ def output_image_rel(value: str) -> Path:
         return Path(text)
     if text.startswith("imgs_"):
         return Path("train_webp") / text
+    if text.startswith("train/"):
+        return Path("train_webp") / Path(text.removeprefix("train/")).with_suffix(".webp")
     parts = Path(text).parts
     if "train_webp" in parts:
         return Path(*parts[parts.index("train_webp") :])
@@ -147,13 +170,14 @@ def resize_one(
 
 
 def copy_metadata(
-    rows: list[dict],
+    needed_ids: set[str],
     manifest_path: Path,
     subsets_dir: Path,
     data_root: Path,
     annotation_dir: Path,
     export_data: Path,
     name: str,
+    video_splits: Path | None,
 ) -> dict:
     subset_dst = export_data / "subsets_v2"
     subset_dst.mkdir(parents=True, exist_ok=True)
@@ -172,12 +196,6 @@ def copy_metadata(
         annotation_dst.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source_caption, annotation_dst / source_caption.name)
 
-    needed_ids = {
-        str(row[field])
-        for row in rows
-        for field in ("image_id", "hard_i_id")
-        if row.get(field)
-    }
     by_chunk: dict[str, list[dict]] = defaultdict(list)
     found_ids = set()
     annotation_files = sorted(
@@ -204,7 +222,42 @@ def copy_metadata(
     ):
         filename = f"attr_{chunk}.json"
         counts[filename] = write_jsonl(annotation_dst / "train_processed" / filename, chunk_rows)
+    if video_splits is not None:
+        split_dst = export_data / "splits"
+        split_dst.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(video_splits, split_dst / "video_splits.json")
     return counts
+
+
+def parse_eval_splits(value: str) -> set[str]:
+    names = {item.strip() for item in value.split(",") if item.strip()}
+    unknown = names - {"dev", "report"}
+    if unknown:
+        raise ValueError(f"--include-eval-splits only accepts dev/report, got {sorted(unknown)}")
+    return names
+
+
+def collect_eval_rows(
+    annotation_dir: Path,
+    video_splits: Path | None,
+    eval_splits: set[str],
+) -> tuple[list[dict], dict[str, int]]:
+    if not eval_splits:
+        return [], {}
+    if video_splits is None:
+        raise ValueError("--video-splits is required when --include-eval-splits is set")
+    payload = json.loads(video_splits.read_text(encoding="utf-8"))
+    split_by_video = {str(key): str(value) for key, value in payload["split_by_video"].items()}
+    rows, counts = [], Counter()
+    for path in sorted(annotation_dir.glob("attr_*.json"), key=annotation_index):
+        for row in iter_jsonl(path):
+            split = split_by_video.get(str(row.get("video_id")))
+            if split in eval_splits:
+                rows.append(row)
+                counts[split] += 1
+    if any(counts.get(name, 0) == 0 for name in eval_splits):
+        raise ValueError(f"Requested evaluation split is empty: {dict(counts)}")
+    return rows, dict(counts)
 
 
 def create_shards(
@@ -264,8 +317,11 @@ def main() -> None:
     export_dir.mkdir(parents=True, exist_ok=True)
 
     rows = list(iter_jsonl(manifest_path))
+    eval_splits = parse_eval_splits(args.include_eval_splits)
+    eval_rows, eval_counts = collect_eval_rows(args.annotation_dir, args.video_splits, eval_splits)
     assets: dict[Path, Path] = {}
     missing = []
+    needed_ids: set[str] = set()
     for row in rows:
         for field in ("image_webp", "hard_image_webp"):
             src = source_image_path(str(row[field]), args.data_root, args.image_root)
@@ -273,6 +329,19 @@ def main() -> None:
             assets[src] = rel
             if not src.exists():
                 missing.append(str(src))
+        for field in ("image_id", "hard_i_id"):
+            if row.get(field):
+                needed_ids.add(str(row[field]))
+    for row in eval_rows:
+        image_value = str(row.get("image") or "")
+        if not image_value:
+            raise ValueError(f"Evaluation row has no image path: {row.get('image_id')}")
+        src = source_image_path(image_value, args.data_root, args.image_root)
+        rel = output_image_rel(image_value)
+        assets[src] = rel
+        needed_ids.add(str(row["image_id"]))
+        if not src.exists():
+            missing.append(str(src))
     if missing:
         raise SystemExit(f"{len(missing):,} selected assets are missing. First: {missing[:10]}")
 
@@ -303,13 +372,14 @@ def main() -> None:
         raise SystemExit(f"{len(failures):,} resize failures. First: {failures[:10]}")
 
     annotation_counts = copy_metadata(
-        rows,
+        needed_ids,
         manifest_path,
         args.subsets_dir,
         args.data_root,
         args.annotation_dir,
         export_data,
         name,
+        args.video_splits,
     )
     rel_paths = [rel for _, rel in ordered_assets]
 
@@ -330,6 +400,7 @@ def main() -> None:
         "subset": name,
         "source_manifest": str(manifest_path),
         "subset_rows": len(rows),
+        "eval_rows": eval_counts,
         "unique_assets": len(assets),
         "output_size": [args.size, args.size],
         "webp_quality": args.quality,
@@ -353,7 +424,7 @@ def main() -> None:
         manifest_path_out.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
 
     print(f"export: {export_dir}")
-    print(f"rows: {len(rows):,}; unique 448 assets: {len(assets):,}")
+    print(f"subset rows: {len(rows):,}; eval rows: {eval_counts}; unique 448 assets: {len(assets):,}")
     print(f"shards: {len(shards):,}")
     if archive:
         print(f"archive: {archive}")
