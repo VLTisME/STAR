@@ -491,6 +491,61 @@ Keep private copies of resolved commands/configs, split and manifest hashes, env
 train_metrics.jsonl, TensorBoard events, W&B URL, last and best_dev checkpoints, checksums, dev
 metrics, and report metrics. Do not upload multi-GB checkpoints to W&B.
 
+### 11.1 Two-stage PE -> X-VLM ITM evaluation
+
+The standalone X-VLM bi-encoder metric is an ablation, not the final STAR metric. PE performs
+global retrieval; the X-VLM ITM head only reranks PE's frozen Top-K. These models use incompatible
+legacy/modern dependency stacks, so export candidates in the PE environment and consume them in
+the X-VLM environment.
+
+First select the fusion/postprocessing configuration on DEV only:
+
+~~~bash
+# Modern PE environment: one PE encode pass, CPU candidate cache.
+source /workspace/venvs/star-pe/bin/activate
+python scripts/export_pe_candidates.py \
+  --manifest "$MANIFEST" --image-root "$RUN_ROOT" \
+  --text-cache "$RUN_ROOT/artifacts/pe_30k_text.pt" \
+  --ckpt outputs/paper/30k/pe/best_dev_pe.pth \
+  --split dev --topk 50 --output outputs/paper/30k/two_stage/dev_pe_candidates.pt
+deactivate
+
+# Legacy X-VLM environment: ITM only on PE candidates, then CPU-only alpha/SCA/GS sweep.
+source /workspace/venvs/star-xvlm/bin/activate
+python scripts/rerank_xvlm_candidates.py \
+  --config configs/paper/xvlm_30k.yaml \
+  --xvlm-ckpt outputs/paper/30k/xvlm/best_dev.pth \
+  --pe-candidates outputs/paper/30k/two_stage/dev_pe_candidates.pt \
+  --split dev --output-dir outputs/paper/30k/two_stage/dev \
+  --set data.manifest="$MANIFEST" data.image_root="$RUN_ROOT" \
+        model.xvlm_repo="$XVLM_REPO" model.checkpoint="$XVLM_CKPT"
+deactivate
+~~~
+
+`best_dev_config.json` is frozen once. Only then generate REPORT candidates and run exactly that
+configuration. The report command must never sweep or select a new setting:
+
+~~~bash
+source /workspace/venvs/star-pe/bin/activate
+python scripts/export_pe_candidates.py \
+  --manifest "$MANIFEST" --image-root "$RUN_ROOT" \
+  --text-cache "$RUN_ROOT/artifacts/pe_30k_text.pt" \
+  --ckpt outputs/paper/30k/pe/best_dev_pe.pth \
+  --split report --topk 50 --output outputs/paper/30k/two_stage/report_pe_candidates.pt
+deactivate
+
+source /workspace/venvs/star-xvlm/bin/activate
+python scripts/rerank_xvlm_candidates.py \
+  --config configs/paper/xvlm_30k.yaml \
+  --xvlm-ckpt outputs/paper/30k/xvlm/best_dev.pth \
+  --pe-candidates outputs/paper/30k/two_stage/report_pe_candidates.pt \
+  --split report --frozen-config outputs/paper/30k/two_stage/dev/best_dev_config.json \
+  --output-dir outputs/paper/30k/two_stage/report \
+  --set data.manifest="$MANIFEST" data.image_root="$RUN_ROOT" \
+        model.xvlm_repo="$XVLM_REPO" model.checkpoint="$XVLM_CKPT"
+deactivate
+~~~
+
 ## 12. Failure guide
 
 | Symptom | Cause | Correct response |
