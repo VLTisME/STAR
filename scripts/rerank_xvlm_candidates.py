@@ -202,7 +202,11 @@ def main() -> None:
 
     if args.frozen_config:
         frozen = json.loads(Path(args.frozen_config).read_text(encoding="utf-8"))
-        variants = [(frozen["alpha"], frozen["postprocess"])]
+        # DEV can legitimately select PE alone.  Keep REPORT faithful to that
+        # frozen decision instead of inventing an ITM fusion weight.
+        variants = [] if frozen.get("kind") == "pe_raw" else [
+            (frozen["alpha"], frozen["postprocess"])
+        ]
     else:
         alphas = [float(value) for value in args.alphas.split(",")]
         methods = [value.strip() for value in args.postprocess.split(",") if value.strip()]
