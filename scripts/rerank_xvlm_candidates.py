@@ -54,6 +54,7 @@ def load(path: str) -> dict:
         return torch.load(path, map_location="cpu")
 
 
+@torch.inference_mode()
 def encode_xvlm(model, dataset, gallery_ids, query_rows, batch_size, workers, device):
     gallery_position = {image_id: pos for pos, image_id in enumerate(gallery_ids)}
     first_gallery_row = {}
