@@ -38,7 +38,13 @@ def greedy_sca(order: Tensor, scores: Tensor) -> tuple[Tensor, Tensor]:
     holders: dict[int, list[int]] = {}
     for query_index, gallery_index in enumerate(assigned.tolist()):
         holders.setdefault(int(gallery_index), []).append(query_index)
-    occupied = set(int(value) for value in assigned.tolist())
+    # A gallery may initially be held by several queries.  Track multiplicity:
+    # removing one losing claim must not make the image available while another
+    # query still holds it.
+    occupancy: dict[int, int] = {}
+    for value in assigned.tolist():
+        gallery_index = int(value)
+        occupancy[gallery_index] = occupancy.get(gallery_index, 0) + 1
     for queries in holders.values():
         if len(queries) < 2:
             continue
@@ -47,13 +53,15 @@ def greedy_sca(order: Tensor, scores: Tensor) -> tuple[Tensor, Tensor]:
             old = int(assigned[query_index])
             replacement = next(
                 (int(candidate) for candidate in order[query_index].tolist()
-                 if int(candidate) != old and int(candidate) not in occupied),
+                 if int(candidate) != old and occupancy.get(int(candidate), 0) == 0),
                 None,
             )
             if replacement is not None:
                 assigned[query_index] = replacement
-                occupied.remove(old)
-                occupied.add(replacement)
+                occupancy[old] -= 1
+                if occupancy[old] == 0:
+                    del occupancy[old]
+                occupancy[replacement] = occupancy.get(replacement, 0) + 1
     return _promote(order, assigned), assigned
 
 

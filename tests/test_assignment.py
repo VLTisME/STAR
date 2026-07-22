@@ -21,3 +21,11 @@ def test_greedy_sca_preserves_candidate_membership():
     assert top1_conflict_count(resolved) == 0
     for source, target in zip(order, resolved):
         assert set(source.tolist()) == set(target.tolist())
+
+
+def test_greedy_sca_handles_three_initial_claims_on_one_image():
+    order = torch.tensor([[0, 1, 2], [0, 2, 1], [0, 3, 4]])
+    scores = torch.tensor([[0.9, 0.5, 0.1], [0.8, 0.7, 0.2], [0.7, 0.6, 0.1]])
+    resolved, _ = greedy_sca(order, scores)
+    assert top1_conflict_count(resolved) == 0
+    assert resolved[:, 0].tolist() == [0, 2, 3]
