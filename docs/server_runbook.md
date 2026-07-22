@@ -522,6 +522,24 @@ python scripts/rerank_xvlm_candidates.py \
 deactivate
 ~~~
 
+After the frozen REPORT result exists, the predeclared assignment ablation can reuse its
+``itm_cache.pt``. This does not encode images or make a new selection decision: it reports the
+three fixed policies at the DEV-selected fusion alpha.
+
+~~~bash
+source /workspace/venvs/star-xvlm/bin/activate
+python scripts/rerank_xvlm_candidates.py \
+  --config configs/paper/xvlm_30k.yaml \
+  --xvlm-ckpt outputs/paper/30k/xvlm/best_dev.pth \
+  --pe-candidates outputs/paper/30k/two_stage/report_pe_candidates.pt \
+  --split report --frozen-config outputs/paper/30k/two_stage/dev/best_dev_config.json \
+  --report-postprocess-ablation --postprocess none,greedy_sca,gale_shapley \
+  --reuse-itm-cache --output-dir outputs/paper/30k/two_stage/report \
+  --set data.manifest="$MANIFEST" data.image_root="$RUN_ROOT" \
+        model.xvlm_repo="$XVLM_REPO" model.checkpoint="$XVLM_CKPT"
+deactivate
+~~~
+
 `best_dev_config.json` is frozen once. Only then generate REPORT candidates and run exactly that
 configuration. The report command must never sweep or select a new setting:
 

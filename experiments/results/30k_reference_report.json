@@ -1,0 +1,28 @@
+{
+  "protocol": "clean_video_disjoint",
+  "split": "report",
+  "run_id": "30k-star-two-stage-k50",
+  "selection": {
+    "split": "dev",
+    "topk": 50,
+    "fusion": "itm + 2.0 * per-query min-max PE score",
+    "postprocess": "gale_shapley"
+  },
+  "pe_first_stage": {
+    "mAP": 0.9502890706062317,
+    "R@1": 0.9185000061988831,
+    "R@5": 0.9915000200271606,
+    "R@10": 0.9984999895095825,
+    "candidate_coverage_at_50": 1.0,
+    "top1_conflicts": 36
+  },
+  "star_two_stage": {
+    "mAP": 0.9675713181495667,
+    "R@1": 0.9465000033378601,
+    "R@5": 0.9929999709129333,
+    "R@10": 0.9984999895095825,
+    "candidate_coverage_at_50": 1.0,
+    "top1_conflicts": 0
+  },
+  "source_metrics": "outputs/paper/30k/two_stage/report/metrics.json"
+}

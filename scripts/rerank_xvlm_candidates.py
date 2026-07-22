@@ -36,6 +36,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--frozen-config", default=None,
                         help="dev-selected JSON config; required for a final report run")
+    parser.add_argument(
+        "--report-postprocess-ablation",
+        action="store_true",
+        help=(
+            "evaluate predeclared none/Greedy-SCA/Gale-Shapley variants at the DEV-frozen "
+            "fusion alpha. This is REPORT-only measurement, never a new selection sweep."
+        ),
+    )
     parser.add_argument("--alphas", default="0,0.25,0.5,1,2",
                         help="ITM + alpha * per-query min-max PE score")
     parser.add_argument("--postprocess", default="none,greedy_sca,gale_shapley")
@@ -205,9 +213,13 @@ def main() -> None:
         frozen = json.loads(Path(args.frozen_config).read_text(encoding="utf-8"))
         # DEV can legitimately select PE alone.  Keep REPORT faithful to that
         # frozen decision instead of inventing an ITM fusion weight.
-        variants = [] if frozen.get("kind") == "pe_raw" else [
-            (frozen["alpha"], frozen["postprocess"])
-        ]
+        if frozen.get("kind") == "pe_raw":
+            variants = []
+        elif args.report_postprocess_ablation:
+            methods = [value.strip() for value in args.postprocess.split(",") if value.strip()]
+            variants = [(frozen["alpha"], method) for method in methods]
+        else:
+            variants = [(frozen["alpha"], frozen["postprocess"])]
     else:
         alphas = [float(value) for value in args.alphas.split(",")]
         methods = [value.strip() for value in args.postprocess.split(",") if value.strip()]
@@ -219,14 +231,25 @@ def main() -> None:
         print(row)
         if args.frozen_config or row is select_best(rows, pe_baseline):
             best_order = order
-    best = select_best(rows, pe_baseline) if not args.frozen_config else rows[-1]
-    if not args.frozen_config:
-        # Rebuild the chosen order rather than relying on loop-object identity.
-        if best["kind"] == "pe_raw":
-            best_order = pe_order
-        else:
-            _, best_order = evaluate_variant(pe_scores, gt, candidate_indices, candidate_scores, itm_scores,
-                                              best["alpha"], best["postprocess"])
+    if args.frozen_config:
+        best = next(
+            (
+                row for row in rows
+                if row["kind"] == frozen.get("kind")
+                and row["alpha"] == frozen.get("alpha")
+                and row["postprocess"] == frozen.get("postprocess")
+            ),
+            pe_baseline,
+        )
+    else:
+        best = select_best(rows, pe_baseline)
+    # Rebuild the selected order rather than relying on loop-object identity or
+    # the order in which a fixed report ablation was requested.
+    if best["kind"] == "pe_raw":
+        best_order = pe_order
+    else:
+        _, best_order = evaluate_variant(pe_scores, gt, candidate_indices, candidate_scores, itm_scores,
+                                          best["alpha"], best["postprocess"])
         (output / "best_dev_config.json").write_text(json.dumps(best, indent=2) + "\n", encoding="utf-8")
 
     result = {"split": args.split, "pe_baseline": pe_baseline, "selected": best,

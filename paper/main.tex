@@ -134,15 +134,14 @@ optimizer, schedule, seed, and compute.}
     \toprule
     Method & mAP & R@1 & R@5 & R@10 \\
     \midrule
-    PE retrieval & \todo{} & \todo{} & \todo{} & \todo{} \\
-    + X-VLM reranking & \todo{} & \todo{} & \todo{} & \todo{} \\
-    + Gale--Shapley (STAR) & \todo{} & \todo{} & \todo{} & \todo{} \\
+    PE first-stage retrieval & 95.03 & 91.85 & 99.15 & 99.85 \\
+    STAR two-stage retrieval & \textbf{96.76} & \textbf{94.65} & \textbf{99.30} & \textbf{99.85} \\
     \bottomrule
   \end{tabular}
   \label{tab:main}
 \end{table}
 
-\todo{Add scale, component-ablation, and postprocessing tables from the experiment ledger.}
+\todo{Add fixed postprocessing, component-ablation, and scale tables from the experiment ledger.}
 
 \section{Qualitative Analysis and Limitations}
 \todo{Add report-split retrieval wins and two failure cases. Discuss ambiguous event phase,

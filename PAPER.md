@@ -189,7 +189,22 @@ config files and the experiment ledger.
 | Postprocessing | none, Greedy SCA, Gale-Shapley, locked GS | report |
 | Optional OOD | report with fixed UCF-Crime distractors | report + OOD gallery |
 
-### 4.4 Qualitative Analysis
+### 4.4 Current Clean Reference: 30K
+
+The first completed clean experiment is the 30K hard-subset reference. The PE stage has full
+Top-50 report coverage, so the X-VLM stage can reorder every relevant candidate without a
+candidate-recall bottleneck. The frozen DEV selection (`K=50`, ITM plus `2.0` times normalized PE
+score, Gale--Shapley) generalizes on REPORT:
+
+| Method | mAP | R@1 | R@5 | R@10 |
+|---|---:|---:|---:|---:|
+| PE first-stage retrieval | 95.03 | 91.85 | 99.15 | 99.85 |
+| STAR two-stage retrieval | **96.76** | **94.65** | **99.30** | **99.85** |
+
+This is an intermediate reference, not a final abstract claim: caption/XBM/loss ablations and
+the 10K/50K scale table remain required before the manuscript is frozen.
+
+### 4.5 Qualitative Analysis
 
 Show action-focused caption examples, retrieval wins over the base system, and remaining failures.
 Use train/report images only. Do not include held-out competition examples or tuning-selected cases.
@@ -211,3 +226,4 @@ and checkpoint checksum.
 | Smooth-AP helps reranking | 30K Smooth-AP off/on on report | pending |
 | Gale-Shapley helps assignment | same score matrix, four postprocessors | pending |
 | More data helps | 10K/30K/50K frozen recipe on report | pending |
+| Two-stage reranking helps | 30K PE versus frozen PE+ITM+GS on report | complete |
