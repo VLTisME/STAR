@@ -10,6 +10,8 @@ class CrossBatchMemory(nn.Module):
         super().__init__()
         self.capacity = int(capacity)
         self.dim = int(dim)
+        if self.capacity < 0:
+            raise ValueError("CrossBatchMemory capacity must be non-negative")
         self.register_buffer("image", torch.zeros(capacity, dim, dtype=torch.float16))
         self.register_buffer("text", torch.zeros(capacity, dim, dtype=torch.float16))
         self.register_buffer("instance_id", torch.full((capacity,), -1, dtype=torch.long))
@@ -35,6 +37,10 @@ class CrossBatchMemory(nn.Module):
         instance_id: Tensor,
         caption_hash: Tensor,
     ) -> None:
+        # ``capacity=0`` is the explicit no-XBM ablation.  Keep the same loss
+        # and diagnostics while making queue updates a no-op.
+        if self.capacity == 0:
+            return
         image = F.normalize(image.detach(), dim=-1).to(self.image.dtype)
         text = F.normalize(text.detach(), dim=-1).to(self.text.dtype)
         count = image.size(0)
