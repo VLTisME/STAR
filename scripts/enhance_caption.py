@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import os
 import re
 import shutil
 from dataclasses import dataclass
@@ -39,6 +41,23 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--smoke", type=int, default=10, help="Rows to print when not using --write.")
     parser.add_argument("--limit", type=int, default=None, help="Maximum rows to process.")
     parser.add_argument("--write", action="store_true", help="Update the subset JSONL in place and create .bak.")
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="Resume a --write run from its local sidecar progress file.",
+    )
+    parser.add_argument(
+        "--progress-path",
+        type=Path,
+        default=None,
+        help="Optional JSONL sidecar for resumable completed caption tasks.",
+    )
+    parser.add_argument(
+        "--checkpoint-every",
+        type=int,
+        default=512,
+        help="Persist the subset every N generated tasks during --write; 0 writes only at the end.",
+    )
     parser.add_argument("--overwrite", action="store_true", help="Regenerate existing enhanced fields.")
     parser.add_argument(
         "--label-type",
@@ -207,6 +226,30 @@ def generate_vllm(
     gpu_memory_utilization: float,
     batch_size: int,
 ) -> list[str]:
+    outputs = []
+    for start, batch_outputs in generate_vllm_batches(
+        model_name,
+        prompts,
+        max_new_tokens,
+        temperature,
+        trust_remote_code,
+        gpu_memory_utilization,
+        batch_size,
+    ):
+        outputs.extend(batch_outputs)
+        print(f"enhanced {min(start + len(batch_outputs), len(prompts)):,}/{len(prompts):,}")
+    return outputs
+
+
+def generate_vllm_batches(
+    model_name: str,
+    prompts: list[str],
+    max_new_tokens: int,
+    temperature: float,
+    trust_remote_code: bool,
+    gpu_memory_utilization: float,
+    batch_size: int,
+) -> Iterable[tuple[int, list[str]]]:
     try:
         from vllm import LLM, SamplingParams
     except Exception as exc:
@@ -223,16 +266,13 @@ def generate_vllm(
     )
     tokenizer = llm.get_tokenizer()
     params = SamplingParams(temperature=temperature, max_tokens=max_new_tokens)
-    outputs = []
     for start in range(0, len(prompts), batch_size):
         rendered = [
             chat_or_plain_prompt(tokenizer, prompt)
             for prompt in prompts[start : start + batch_size]
         ]
         results = llm.generate(rendered, params, use_tqdm=False)
-        outputs.extend(result.outputs[0].text.strip() for result in results)
-        print(f"enhanced {min(start + batch_size, len(prompts)):,}/{len(prompts):,}")
-    return outputs
+        yield start, [result.outputs[0].text.strip() for result in results]
 
 
 def generate_batch(tokenizer, model, device: str, prompts: list[str], max_new_tokens: int, temperature: float) -> list[str]:
@@ -255,6 +295,68 @@ def generate_batch(tokenizer, model, device: str, prompts: list[str], max_new_to
         outputs = model.generate(**inputs, **kwargs)
 
     return [tokenizer.decode(output[input_width:], skip_special_tokens=True).strip() for output in outputs]
+
+
+def task_key(task: Task) -> str:
+    payload = {
+        "row_index": task.row_index,
+        "output_field": task.output_field,
+        "original_text": task.original_text,
+        "label_type": task.label_type,
+        "action_label": task.action_label,
+        "source_caption": task.source_caption,
+    }
+    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def default_progress_path(subset: Path) -> Path:
+    return subset.with_suffix(subset.suffix + ".enhance_progress.jsonl")
+
+
+def load_progress(path: Path) -> dict[str, str]:
+    if not path.exists():
+        return {}
+    completed: dict[str, str] = {}
+    for line_number, line in enumerate(path.open("r", encoding="utf-8"), 1):
+        if not line.strip():
+            continue
+        try:
+            record = json.loads(line)
+            key = str(record["task_key"])
+            output = str(record["output"])
+        except (KeyError, TypeError, json.JSONDecodeError) as exc:
+            raise ValueError(f"Invalid progress record at {path}:{line_number}") from exc
+        completed[key] = output
+    return completed
+
+
+def append_progress(path: Path, tasks: list[Task], outputs: list[str]) -> None:
+    if len(tasks) != len(outputs):
+        raise ValueError("Progress task/output length mismatch")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        for task, output in zip(tasks, outputs):
+            record = {
+                "task_key": task_key(task),
+                "row_index": task.row_index,
+                "output_field": task.output_field,
+                "output": output,
+            }
+            handle.write(json.dumps(record, ensure_ascii=False, separators=(",", ":")) + "\n")
+        handle.flush()
+        os.fsync(handle.fileno())
+
+
+def apply_saved_outputs(rows: list[dict], tasks: list[Task], completed: dict[str, str]) -> int:
+    restored = 0
+    for task in tasks:
+        output = completed.get(task_key(task))
+        if output is None:
+            continue
+        rows[task.row_index][task.output_field] = output
+        restored += 1
+    return restored
 
 
 def selected_label_type(label_type: str | None, target: str) -> bool:
@@ -390,6 +492,10 @@ def print_smoke(rows: list[dict], tasks: list[Task], outputs: list[str], max_row
 
 def main() -> None:
     args = parse_args()
+    if args.resume and not args.write:
+        raise SystemExit("--resume requires --write")
+    if args.checkpoint_every < 0:
+        raise SystemExit("--checkpoint-every must be >= 0")
     rows = list(iter_jsonl(args.subset))
     if not rows:
         raise SystemExit(f"No rows found in {args.subset}")
@@ -399,7 +505,7 @@ def main() -> None:
     tasks = build_tasks(
         rows,
         label_map,
-        overwrite=args.overwrite,
+        overwrite=args.overwrite or args.resume,
         limit=row_limit,
         label_type_target=args.label_type,
     )
@@ -426,52 +532,112 @@ def main() -> None:
     print(f"backend: {args.backend}")
     print(f"device: {args.device}")
     print(f"rows: {len(rows):,}")
+    progress_path = args.progress_path or default_progress_path(args.subset)
+    if args.write and not args.resume and progress_path.exists():
+        progress_path.unlink()
+    completed = load_progress(progress_path) if args.resume else {}
+    if args.write:
+        backup_path = args.subset.with_suffix(args.subset.suffix + ".bak")
+        if not backup_path.exists():
+            shutil.copy2(args.subset, backup_path)
+        initialize_enhanced_fields(rows, overwrite=args.overwrite or args.resume, limit=args.limit)
+        if args.clear_unselected:
+            reset_unselected_fields(rows, label_map, args.label_type, args.limit)
+        restored = apply_saved_outputs(rows, tasks, completed)
+        pending_tasks = [task for task in tasks if task_key(task) not in completed]
+        # Make the normal-copy fields durable before the expensive model starts.
+        write_jsonl(args.subset, rows)
+    else:
+        backup_path = None
+        restored = 0
+        pending_tasks = tasks
+
     print(f"tasks: {len(tasks):,}")
+    if args.write:
+        print(f"resumed tasks: {restored:,}; pending tasks: {len(pending_tasks):,}")
+        print(f"progress: {progress_path}")
     print(f"label_type: {args.label_type}")
     print(f"write: {args.write}")
 
+    if not args.write:
+        if args.backend == "vllm":
+            outputs = generate_vllm(
+                args.model,
+                [task.prompt for task in tasks],
+                args.max_new_tokens,
+                args.temperature,
+                args.trust_remote_code,
+                args.gpu_memory_utilization,
+                args.batch_size,
+            )
+        else:
+            tokenizer, model, device = load_model(args.model, args.device, args.trust_remote_code)
+            outputs = []
+            for start in range(0, len(tasks), args.batch_size):
+                batch = tasks[start : start + args.batch_size]
+                outputs.extend(
+                    generate_batch(
+                        tokenizer,
+                        model,
+                        device,
+                        [task.prompt for task in batch],
+                        max_new_tokens=args.max_new_tokens,
+                        temperature=args.temperature,
+                    )
+                )
+                done = min(start + args.batch_size, len(tasks))
+                print(f"enhanced {done:,}/{len(tasks):,}")
+        print_smoke(rows, tasks, outputs, max_rows=args.smoke)
+        print("Smoke mode only; no file was modified. Add --write to update the subset JSONL.")
+        return
+
+    written_since_checkpoint = 0
+    total_done = restored
+
+    def commit(batch: list[Task], raw_outputs: list[str]) -> None:
+        nonlocal written_since_checkpoint, total_done
+        final_outputs = [finalize_output(task, output) for task, output in zip(batch, raw_outputs)]
+        append_progress(progress_path, batch, final_outputs)
+        for task, output in zip(batch, final_outputs):
+            rows[task.row_index][task.output_field] = output
+        written_since_checkpoint += len(batch)
+        total_done += len(batch)
+        if args.checkpoint_every and written_since_checkpoint >= args.checkpoint_every:
+            write_jsonl(args.subset, rows)
+            written_since_checkpoint = 0
+            print(f"checkpointed {total_done:,}/{len(tasks):,}")
+
     if args.backend == "vllm":
-        outputs = generate_vllm(
+        for start, raw_outputs in generate_vllm_batches(
             args.model,
-            [task.prompt for task in tasks],
+            [task.prompt for task in pending_tasks],
             args.max_new_tokens,
             args.temperature,
             args.trust_remote_code,
             args.gpu_memory_utilization,
             args.batch_size,
-        )
+        ):
+            batch = pending_tasks[start : start + len(raw_outputs)]
+            commit(batch, raw_outputs)
+            print(f"enhanced {total_done:,}/{len(tasks):,}")
     else:
         tokenizer, model, device = load_model(args.model, args.device, args.trust_remote_code)
-        outputs: list[str] = []
-        for start in range(0, len(tasks), args.batch_size):
-            batch = tasks[start : start + args.batch_size]
-            outputs.extend(
-                generate_batch(
-                    tokenizer,
-                    model,
-                    device,
-                    [task.prompt for task in batch],
-                    max_new_tokens=args.max_new_tokens,
-                    temperature=args.temperature,
-                )
+        for start in range(0, len(pending_tasks), args.batch_size):
+            batch = pending_tasks[start : start + args.batch_size]
+            raw_outputs = generate_batch(
+                tokenizer,
+                model,
+                device,
+                [task.prompt for task in batch],
+                max_new_tokens=args.max_new_tokens,
+                temperature=args.temperature,
             )
-            done = min(start + args.batch_size, len(tasks))
-            print(f"enhanced {done:,}/{len(tasks):,}")
+            commit(batch, raw_outputs)
+            print(f"enhanced {total_done:,}/{len(tasks):,}")
 
-    if not args.write:
-        print_smoke(rows, tasks, outputs, max_rows=args.smoke)
-        print("Smoke mode only; no file was modified. Add --write to update the subset JSONL.")
-        return
-
-    backup_path = args.subset.with_suffix(args.subset.suffix + ".bak")
-    if not backup_path.exists():
-        shutil.copy2(args.subset, backup_path)
-    initialize_enhanced_fields(rows, overwrite=args.overwrite, limit=args.limit)
-    if args.clear_unselected:
-        reset_unselected_fields(rows, label_map, args.label_type, args.limit)
-    apply_outputs(rows, tasks, outputs)
     write_jsonl(args.subset, rows)
     print(f"backup: {backup_path}")
+    print(f"progress: {progress_path}")
     print(f"updated: {args.subset}")
 
 
